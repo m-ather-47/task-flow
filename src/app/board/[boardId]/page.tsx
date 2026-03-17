@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useBoard } from "@/hooks/useBoard";
 import { useTasks } from "@/hooks/useTasks";
+import { useCursorTracking } from "@/hooks/useCursorTracking";
 import { Board } from "@/components/board/Board";
 import { BoardHeader } from "@/components/board/BoardHeader";
 import { TaskModal } from "@/components/board/TaskModal";
 import { MemberInvite } from "@/components/board/MemberInvite";
+import { CursorOverlay } from "@/components/board/CursorOverlay";
 import { Spinner } from "@/components/ui/Spinner";
 import { Modal } from "@/components/ui/Modal";
 import { useAuthContext } from "@/contexts/AuthContext";
@@ -20,6 +22,14 @@ export default function BoardPage() {
   const { user } = useAuthContext();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showMembers, setShowMembers] = useState(false);
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+
+  const { cursors } = useCursorTracking({
+    boardId,
+    user,
+    containerRef: boardContainerRef,
+    enabled: !!board,
+  });
 
   if (loading) {
     return (
@@ -49,7 +59,7 @@ export default function BoardPage() {
     : "viewer";
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={boardContainerRef} className="relative flex flex-col h-full">
       <BoardHeader board={board} onOpenSettings={() => setShowMembers(true)} />
       <Board
         board={board}
@@ -57,6 +67,7 @@ export default function BoardPage() {
         taskActions={taskActions}
         onTaskClick={(task) => setSelectedTask(task)}
       />
+      <CursorOverlay cursors={cursors} />
 
       {selectedTask && (
         <TaskModal

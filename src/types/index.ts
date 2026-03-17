@@ -73,3 +73,13 @@ export interface Activity {
   metadata?: Record<string, unknown>;
   createdAt: Date;
 }
+
+export interface CursorPosition {
+  odId: string;
+  odName: string;
+  odPhoto: string | null;
+  x: number;
+  y: number;
+  color: string;
+  lastUpdated: number;
+}
