@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Spinner } from "@/components/ui/Spinner";
 
@@ -11,17 +12,20 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, loading } = useAuth();
+  const router = useRouter();
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [loading, user, router]);
+
+  if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
-  }
-
-  if (!user) {
-    redirect("/login");
   }
 
   return (

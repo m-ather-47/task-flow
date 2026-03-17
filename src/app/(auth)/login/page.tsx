@@ -39,7 +39,7 @@ export default function LoginPage() {
           <h1 className="text-xl font-semibold text-gray-900">Welcome back</h1>
           <p className="mt-2 text-gray-600">Sign in to manage your projects</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border p-6">
+        <div className="flex justify-center">
           <LoginButton />
         </div>
       </div>

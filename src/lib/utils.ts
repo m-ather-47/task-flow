@@ -13,7 +13,8 @@ export function generateInviteCode(): string {
   return Math.random().toString(36).substring(2, 10);
 }
 
-export function formatDate(date: Date | { toDate: () => Date }): Date {
+export function formatDate(date: Date | { toDate: () => Date } | null | undefined): Date {
+  if (!date) return new Date();
   if (date instanceof Date) return date;
   if (typeof (date as { toDate: () => Date }).toDate === "function") {
     return (date as { toDate: () => Date }).toDate();

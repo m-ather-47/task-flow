@@ -52,12 +52,12 @@ function Modal({ open, onClose, title, children, footer, className }: ModalProps
       {/* Panel */}
       <div
         className={cn(
-          "relative z-10 w-full max-w-lg rounded-xl bg-white shadow-xl",
+          "relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl",
           className
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
           <button
             type="button"
@@ -81,11 +81,11 @@ function Modal({ open, onClose, title, children, footer, className }: ModalProps
         </div>
 
         {/* Body */}
-        <div className="px-6 py-4">{children}</div>
+        <div className="overflow-y-auto px-6 py-4">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-6 py-4">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-gray-200 px-6 py-4">
             {footer}
           </div>
         )}

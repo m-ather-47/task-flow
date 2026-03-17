@@ -15,7 +15,7 @@ export function useAuth() {
 
   const logout = async () => {
     await signOut();
-    router.push("/");
+    // Navigation is handled by DashboardLayout's useEffect
   };
 
   return { user, loading, login, logout };
