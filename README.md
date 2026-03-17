@@ -10,7 +10,7 @@ A real-time collaborative project management application built with Next.js and 
 ### Kanban Board with Real-time Cursors
 ![Kanban Board](screenshots/image_2.png)
 
-### Task Details with Collaborative Editing
+### Real-Time Collaboration with Team Members
 ![Task Modal](screenshots/image_3.png)
 
 ### Analytics Dashboard
@@ -49,7 +49,7 @@ A real-time collaborative project management application built with Next.js and 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/task-flow.git
+git clone https://github.com/m-ather-47/task-flow.git
 cd task-flow
 ```
 
