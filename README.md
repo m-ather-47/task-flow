@@ -49,7 +49,7 @@ A real-time collaborative project management application built with Next.js and 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/task-flow.git
+git clone https://github.com/m-ather-47/task-flow.git
 cd task-flow
 ```
 
