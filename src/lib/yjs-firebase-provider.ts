@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { ref, onValue, set, onDisconnect } from "firebase/database";
-import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
+import { Awareness } from "y-protocols/awareness";
 import { rtdb } from "./firebase";
 
 interface AwarenessState {
@@ -19,26 +19,28 @@ export class FirebaseProvider {
   doc: Y.Doc;
   awareness: Awareness;
   private docPath: string;
-  private userId: string;
+  private odId: string;
   private unsubscribeDoc: (() => void) | null = null;
   private unsubscribeAwareness: (() => void) | null = null;
   private isDestroyed = false;
   private isSyncing = false;
+  private lastSavedState = "";
+  private pendingSave: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     docPath: string,
     doc: Y.Doc,
-    userId: string,
+    odId: string,
     userInfo: { displayName: string; photoURL: string | null; color: string }
   ) {
     this.doc = doc;
     this.docPath = docPath;
-    this.userId = userId;
+    this.odId = odId;
     this.awareness = new Awareness(doc);
 
     // Set local awareness state
     this.awareness.setLocalState({
-      odId: userId,
+      odId: odId,
       odName: userInfo.displayName,
       odPhoto: userInfo.photoURL,
       color: userInfo.color,
@@ -51,21 +53,34 @@ export class FirebaseProvider {
   private async init() {
     // Subscribe to document changes from Firebase
     const docRef = ref(rtdb, `docs/${this.docPath}`);
+
+    let isFirstLoad = true;
+
     this.unsubscribeDoc = onValue(docRef, (snapshot) => {
-      if (this.isDestroyed || this.isSyncing) return;
+      if (this.isDestroyed) return;
 
       const data = snapshot.val();
-      if (data?.update) {
+      if (data?.update && data?.state) {
+        // Skip if this is our own update
+        if (data.state === this.lastSavedState) {
+          return;
+        }
+
         try {
+          this.isSyncing = true;
           const update = Uint8Array.from(atob(data.update), (c) => c.charCodeAt(0));
           Y.applyUpdate(this.doc, update, "firebase");
         } catch (e) {
           console.error("Error applying update:", e);
+        } finally {
+          this.isSyncing = false;
         }
       }
+
+      isFirstLoad = false;
     });
 
-    // Listen to local document changes and broadcast
+    // Listen to local document changes and broadcast (debounced)
     this.doc.on("update", this.handleDocUpdate);
 
     // Subscribe to awareness from Firebase
@@ -76,17 +91,14 @@ export class FirebaseProvider {
       const data = snapshot.val();
       if (!data) return;
 
-      // Apply each user's awareness state
+      // Store remote states for getRemoteStates()
+      this._remoteStates = new Map();
       for (const [odId, state] of Object.entries(data)) {
-        if (odId === this.userId) continue;
-        try {
-          const awarenessState = state as AwarenessState & { clientId?: number };
-          if (awarenessState.clientId) {
-            // Manually set the state for the remote client
-            this.awareness.setLocalStateField("remote", { [odId]: awarenessState });
-          }
-        } catch (e) {
-          // Ignore errors
+        if (odId === this.odId) continue;
+        const s = state as AwarenessState & { lastUpdated?: number };
+        // Only include recent states (within 30 seconds)
+        if (s.lastUpdated && Date.now() - s.lastUpdated < 30000) {
+          this._remoteStates.set(odId, s);
         }
       }
     });
@@ -95,26 +107,44 @@ export class FirebaseProvider {
     this.awareness.on("change", this.handleAwarenessChange);
 
     // Setup onDisconnect to clean up awareness
-    const userAwarenessRef = ref(rtdb, `awareness/${this.docPath}/${this.userId}`);
+    const userAwarenessRef = ref(rtdb, `awareness/${this.docPath}/${this.odId}`);
     onDisconnect(userAwarenessRef).remove();
   }
 
+  private _remoteStates: Map<string, AwarenessState> = new Map();
+
   private handleDocUpdate = (update: Uint8Array, origin: string) => {
-    if (this.isDestroyed || origin === "firebase") return;
+    // Skip if destroyed, syncing from Firebase, or is initialization
+    if (this.isDestroyed || this.isSyncing || origin === "firebase" || origin === "init") {
+      return;
+    }
 
-    this.isSyncing = true;
+    // Debounce saves to reduce Firebase writes
+    if (this.pendingSave) {
+      clearTimeout(this.pendingSave);
+    }
 
-    // Encode entire doc state and save to Firebase
-    const state = Y.encodeStateAsUpdate(this.doc);
-    const base64 = btoa(String.fromCharCode(...state));
+    this.pendingSave = setTimeout(() => {
+      if (this.isDestroyed) return;
 
-    const docRef = ref(rtdb, `docs/${this.docPath}`);
-    set(docRef, {
-      update: base64,
-      lastModified: Date.now(),
-    }).finally(() => {
-      this.isSyncing = false;
-    });
+      // Encode entire doc state and save to Firebase
+      const state = Y.encodeStateAsUpdate(this.doc);
+      const base64 = btoa(String.fromCharCode(...state));
+
+      // Create a unique state identifier to detect our own updates
+      const stateHash = base64.substring(0, 50) + base64.length;
+      this.lastSavedState = stateHash;
+
+      const docRef = ref(rtdb, `docs/${this.docPath}`);
+      set(docRef, {
+        update: base64,
+        state: stateHash,
+        lastModified: Date.now(),
+        modifiedBy: this.odId,
+      }).catch((err) => {
+        console.error("Error saving to Firebase:", err);
+      });
+    }, 100);
   };
 
   private handleAwarenessChange = () => {
@@ -123,10 +153,9 @@ export class FirebaseProvider {
     const localState = this.awareness.getLocalState() as AwarenessState | null;
     if (!localState) return;
 
-    const userAwarenessRef = ref(rtdb, `awareness/${this.docPath}/${this.userId}`);
+    const userAwarenessRef = ref(rtdb, `awareness/${this.docPath}/${this.odId}`);
     set(userAwarenessRef, {
       ...localState,
-      clientId: this.awareness.clientID,
       lastUpdated: Date.now(),
     });
   };
@@ -140,20 +169,18 @@ export class FirebaseProvider {
   }
 
   getRemoteStates(): Map<string, AwarenessState> {
-    const states = new Map<string, AwarenessState>();
-    this.awareness.getStates().forEach((state, clientId) => {
-      if (clientId !== this.awareness.clientID && state.odId) {
-        states.set(state.odId as string, state as AwarenessState);
-      }
-    });
-    return states;
+    return this._remoteStates;
   }
 
   destroy() {
     this.isDestroyed = true;
 
+    if (this.pendingSave) {
+      clearTimeout(this.pendingSave);
+    }
+
     // Remove awareness
-    const userAwarenessRef = ref(rtdb, `awareness/${this.docPath}/${this.userId}`);
+    const userAwarenessRef = ref(rtdb, `awareness/${this.docPath}/${this.odId}`);
     set(userAwarenessRef, null);
 
     // Unsubscribe

@@ -26,7 +26,7 @@ interface UseCollaborativeTaskOptions {
     title: string;
     description: string;
   };
-  onUpdate: (field: "title" | "description", value: string) => void;
+  onSave: (field: "title" | "description", value: string) => void;
 }
 
 export function useCollaborativeTask({
@@ -34,43 +34,38 @@ export function useCollaborativeTask({
   taskId,
   user,
   initialData,
-  onUpdate,
+  onSave,
 }: UseCollaborativeTaskOptions) {
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
   const [titleText, setTitleText] = useState<Y.Text | null>(null);
   const [descText, setDescText] = useState<Y.Text | null>(null);
   const providerRef = useRef<FirebaseProvider | null>(null);
   const docRef = useRef<Y.Doc | null>(null);
-  const onUpdateRef = useRef(onUpdate);
-  const lastSyncedRef = useRef<{ title: string; description: string }>({
-    title: "",
-    description: "",
-  });
+  const onSaveRef = useRef(onSave);
+  const initializedRef = useRef(false);
+  const initialDataRef = useRef(initialData);
 
-  // Keep onUpdate ref current
-  onUpdateRef.current = onUpdate;
+  // Keep refs current
+  onSaveRef.current = onSave;
 
-  // Initialize Yjs document and provider
+  // Only update initialDataRef on first mount
+  if (!initializedRef.current) {
+    initialDataRef.current = initialData;
+  }
+
+  // Initialize Yjs document and provider - only depends on user, boardId, taskId
   useEffect(() => {
     if (!user || !taskId) return;
+
+    // Prevent double initialization
+    if (initializedRef.current && docRef.current) return;
+    initializedRef.current = true;
 
     const doc = new Y.Doc();
     docRef.current = doc;
 
     const title = doc.getText("title");
     const desc = doc.getText("description");
-
-    // Initialize with current values if empty
-    doc.transact(() => {
-      if (title.length === 0 && initialData.title) {
-        title.insert(0, initialData.title);
-        lastSyncedRef.current.title = initialData.title;
-      }
-      if (desc.length === 0 && initialData.description) {
-        desc.insert(0, initialData.description);
-        lastSyncedRef.current.description = initialData.description;
-      }
-    });
 
     setTitleText(title);
     setDescText(desc);
@@ -87,31 +82,44 @@ export function useCollaborativeTask({
     );
     providerRef.current = provider;
 
-    // Listen to text changes and call onUpdate (debounced)
-    let titleTimeout: ReturnType<typeof setTimeout> | null = null;
-    let descTimeout: ReturnType<typeof setTimeout> | null = null;
+    // Wait a bit for Firebase sync, then initialize if still empty
+    const initTimeout = setTimeout(() => {
+      if (title.length === 0 && initialDataRef.current.title) {
+        doc.transact(() => {
+          title.insert(0, initialDataRef.current.title);
+        }, "init");
+      }
+      if (desc.length === 0 && initialDataRef.current.description) {
+        doc.transact(() => {
+          desc.insert(0, initialDataRef.current.description);
+        }, "init");
+      }
+    }, 500);
+
+    // Debounced save to Firestore
+    let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+    let lastTitle = "";
+    let lastDesc = "";
 
     const handleTitleChange = () => {
       const value = title.toString();
-      // Only update if actually changed from last synced value
-      if (value !== lastSyncedRef.current.title) {
-        lastSyncedRef.current.title = value;
-        if (titleTimeout) clearTimeout(titleTimeout);
-        titleTimeout = setTimeout(() => {
-          onUpdateRef.current("title", value);
-        }, 1000);
+      if (value !== lastTitle && value.trim()) {
+        lastTitle = value;
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+          onSaveRef.current("title", value);
+        }, 2000); // Save every 2 seconds of inactivity
       }
     };
 
     const handleDescChange = () => {
       const value = desc.toString();
-      // Only update if actually changed from last synced value
-      if (value !== lastSyncedRef.current.description) {
-        lastSyncedRef.current.description = value;
-        if (descTimeout) clearTimeout(descTimeout);
-        descTimeout = setTimeout(() => {
-          onUpdateRef.current("description", value);
-        }, 1000);
+      if (value !== lastDesc) {
+        lastDesc = value;
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+          onSaveRef.current("description", value);
+        }, 2000);
       }
     };
 
@@ -136,19 +144,20 @@ export function useCollaborativeTask({
     }, 100);
 
     return () => {
+      clearTimeout(initTimeout);
       clearInterval(awarenessInterval);
-      if (titleTimeout) clearTimeout(titleTimeout);
-      if (descTimeout) clearTimeout(descTimeout);
+      if (saveTimeout) clearTimeout(saveTimeout);
       title.unobserve(handleTitleChange);
       desc.unobserve(handleDescChange);
       provider.destroy();
       doc.destroy();
       providerRef.current = null;
       docRef.current = null;
+      initializedRef.current = false;
       setTitleText(null);
       setDescText(null);
     };
-  }, [user, boardId, taskId, initialData.title, initialData.description]);
+  }, [user, boardId, taskId]); // Removed initialData from deps!
 
   // Update cursor position
   const updateCursor = useCallback(
@@ -163,20 +172,11 @@ export function useCollaborativeTask({
     providerRef.current?.clearCursor();
   }, []);
 
-  // Get remote users editing a specific field
-  const getRemoteUsersInField = useCallback(
-    (field: string) => {
-      return remoteUsers.filter((u) => u.cursor?.field === field);
-    },
-    [remoteUsers]
-  );
-
   return {
     titleText,
     descText,
     updateCursor,
     clearCursor,
     remoteUsers,
-    getRemoteUsersInField,
   };
 }

@@ -3,7 +3,6 @@
 import {
   useState,
   useEffect,
-  useRef,
   useCallback,
   type ChangeEvent,
 } from "react";
@@ -40,7 +39,6 @@ function TaskModal({ task, board, onClose, onUpdate, onDelete }: TaskModalProps)
   const { user } = useAuthContext();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [deleting, setDeleting] = useState(false);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Collaborative editing hook
   const {
@@ -57,18 +55,14 @@ function TaskModal({ task, board, onClose, onUpdate, onDelete }: TaskModalProps)
       title: task?.title || "",
       description: task?.description || "",
     },
-    onUpdate: (field, value) => {
-      // Debounce saves to Firestore
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-        if (task) {
-          if (field === "title" && value.trim()) {
-            onUpdate(task.id, { title: value.trim() });
-          } else if (field === "description") {
-            onUpdate(task.id, { description: value });
-          }
+    onSave: (field, value) => {
+      if (task) {
+        if (field === "title" && value.trim()) {
+          onUpdate(task.id, { title: value.trim() });
+        } else if (field === "description") {
+          onUpdate(task.id, { description: value });
         }
-      }, 1000);
+      }
     },
   });
 
@@ -81,10 +75,9 @@ function TaskModal({ task, board, onClose, onUpdate, onDelete }: TaskModalProps)
     return unsub;
   }, [task]);
 
-  // Cleanup
+  // Cleanup cursor on unmount
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       clearCursor();
     };
   }, [clearCursor]);
