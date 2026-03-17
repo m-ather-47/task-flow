@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   useCallback,
-  type KeyboardEvent,
   type ChangeEvent,
 } from "react";
 import * as Y from "yjs";
@@ -43,17 +42,21 @@ export function CollaborativeInput({
 }: CollaborativeInputProps) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const isComposingRef = useRef(false);
+  const isLocalChangeRef = useRef(false);
 
   // Subscribe to yText changes
   useEffect(() => {
     if (!yText) return;
 
     const updateValue = () => {
-      setValue(yText.toString());
+      // Only update if this isn't from our own local change
+      if (!isLocalChangeRef.current) {
+        setValue(yText.toString());
+      }
     };
 
-    updateValue();
+    // Initial value
+    setValue(yText.toString());
     yText.observe(updateValue);
 
     return () => {
@@ -64,36 +67,37 @@ export function CollaborativeInput({
   // Handle input changes
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      if (!yText || isComposingRef.current) return;
+      if (!yText) return;
 
       const newValue = e.target.value;
       const oldValue = yText.toString();
-      const selectionStart = e.target.selectionStart || 0;
 
-      // Calculate diff and apply to yText
-      if (newValue.length > oldValue.length) {
-        // Text was inserted
-        const insertPos = selectionStart - (newValue.length - oldValue.length);
-        const insertedText = newValue.slice(insertPos, selectionStart);
-        yText.insert(insertPos, insertedText);
-      } else if (newValue.length < oldValue.length) {
-        // Text was deleted
-        const deleteLength = oldValue.length - newValue.length;
-        yText.delete(selectionStart, deleteLength);
-      } else {
-        // Text was replaced (same length)
-        // Find the changed position
-        let changeStart = 0;
-        while (changeStart < oldValue.length && oldValue[changeStart] === newValue[changeStart]) {
-          changeStart++;
+      // Skip if values are the same
+      if (newValue === oldValue) return;
+
+      // Mark as local change to prevent observer feedback
+      isLocalChangeRef.current = true;
+
+      // Use Yjs transaction to batch changes
+      yText.doc?.transact(() => {
+        // Delete all and insert new value (simple and reliable)
+        if (yText.length > 0) {
+          yText.delete(0, yText.length);
         }
-        if (changeStart < oldValue.length) {
-          yText.delete(changeStart, 1);
-          yText.insert(changeStart, newValue[changeStart]);
+        if (newValue.length > 0) {
+          yText.insert(0, newValue);
         }
-      }
+      });
+
+      setValue(newValue);
+
+      // Reset flag after a microtask
+      Promise.resolve().then(() => {
+        isLocalChangeRef.current = false;
+      });
 
       // Update cursor position
+      const selectionStart = e.target.selectionStart || 0;
       onCursorChange(field, selectionStart, 0);
     },
     [yText, field, onCursorChange]
@@ -107,11 +111,6 @@ export function CollaborativeInput({
     onCursorChange(field, start, end - start);
   }, [field, onCursorChange]);
 
-  // Handle key events for cursor position updates
-  const handleKeyUp = useCallback(() => {
-    handleSelect();
-  }, [handleSelect]);
-
   // Get remote cursors for this field
   const remoteCursors = remoteUsers.filter((u) => u.cursor?.field === field);
 
@@ -123,13 +122,8 @@ export function CollaborativeInput({
         value={value}
         onChange={handleChange}
         onSelect={handleSelect}
-        onKeyUp={handleKeyUp}
+        onKeyUp={handleSelect}
         onBlur={onBlur}
-        onCompositionStart={() => (isComposingRef.current = true)}
-        onCompositionEnd={(e) => {
-          isComposingRef.current = false;
-          handleChange(e as unknown as ChangeEvent<HTMLInputElement>);
-        }}
         placeholder={placeholder}
         className={cn(
           "block w-full border-0 bg-transparent p-0 text-xl font-semibold text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0",

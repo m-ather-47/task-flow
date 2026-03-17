@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import * as Y from "yjs";
 import { FirebaseProvider } from "@/lib/yjs-firebase-provider";
 import { getCursorColor } from "@/lib/utils";
-import type { User, Task } from "@/types";
+import type { User } from "@/types";
 
 interface RemoteUser {
   odId: string;
@@ -37,12 +37,15 @@ export function useCollaborativeTask({
   onUpdate,
 }: UseCollaborativeTaskOptions) {
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
+  const [titleText, setTitleText] = useState<Y.Text | null>(null);
+  const [descText, setDescText] = useState<Y.Text | null>(null);
   const providerRef = useRef<FirebaseProvider | null>(null);
   const docRef = useRef<Y.Doc | null>(null);
-  const titleTextRef = useRef<Y.Text | null>(null);
-  const descTextRef = useRef<Y.Text | null>(null);
-  const isInitializedRef = useRef(false);
   const onUpdateRef = useRef(onUpdate);
+  const lastSyncedRef = useRef<{ title: string; description: string }>({
+    title: "",
+    description: "",
+  });
 
   // Keep onUpdate ref current
   onUpdateRef.current = onUpdate;
@@ -54,20 +57,23 @@ export function useCollaborativeTask({
     const doc = new Y.Doc();
     docRef.current = doc;
 
-    const titleText = doc.getText("title");
-    const descText = doc.getText("description");
-    titleTextRef.current = titleText;
-    descTextRef.current = descText;
+    const title = doc.getText("title");
+    const desc = doc.getText("description");
 
     // Initialize with current values if empty
-    if (titleText.length === 0 && initialData.title) {
-      titleText.insert(0, initialData.title);
-    }
-    if (descText.length === 0 && initialData.description) {
-      descText.insert(0, initialData.description);
-    }
+    doc.transact(() => {
+      if (title.length === 0 && initialData.title) {
+        title.insert(0, initialData.title);
+        lastSyncedRef.current.title = initialData.title;
+      }
+      if (desc.length === 0 && initialData.description) {
+        desc.insert(0, initialData.description);
+        lastSyncedRef.current.description = initialData.description;
+      }
+    });
 
-    isInitializedRef.current = true;
+    setTitleText(title);
+    setDescText(desc);
 
     const provider = new FirebaseProvider(
       `${boardId}/${taskId}`,
@@ -81,21 +87,36 @@ export function useCollaborativeTask({
     );
     providerRef.current = provider;
 
-    // Listen to text changes and call onUpdate
+    // Listen to text changes and call onUpdate (debounced)
+    let titleTimeout: ReturnType<typeof setTimeout> | null = null;
+    let descTimeout: ReturnType<typeof setTimeout> | null = null;
+
     const handleTitleChange = () => {
-      if (!isInitializedRef.current) return;
-      const value = titleText.toString();
-      onUpdateRef.current("title", value);
+      const value = title.toString();
+      // Only update if actually changed from last synced value
+      if (value !== lastSyncedRef.current.title) {
+        lastSyncedRef.current.title = value;
+        if (titleTimeout) clearTimeout(titleTimeout);
+        titleTimeout = setTimeout(() => {
+          onUpdateRef.current("title", value);
+        }, 1000);
+      }
     };
 
     const handleDescChange = () => {
-      if (!isInitializedRef.current) return;
-      const value = descText.toString();
-      onUpdateRef.current("description", value);
+      const value = desc.toString();
+      // Only update if actually changed from last synced value
+      if (value !== lastSyncedRef.current.description) {
+        lastSyncedRef.current.description = value;
+        if (descTimeout) clearTimeout(descTimeout);
+        descTimeout = setTimeout(() => {
+          onUpdateRef.current("description", value);
+        }, 1000);
+      }
     };
 
-    titleText.observe(handleTitleChange);
-    descText.observe(handleDescChange);
+    title.observe(handleTitleChange);
+    desc.observe(handleDescChange);
 
     // Poll for remote awareness states
     const awarenessInterval = setInterval(() => {
@@ -116,47 +137,18 @@ export function useCollaborativeTask({
 
     return () => {
       clearInterval(awarenessInterval);
-      titleText.unobserve(handleTitleChange);
-      descText.unobserve(handleDescChange);
+      if (titleTimeout) clearTimeout(titleTimeout);
+      if (descTimeout) clearTimeout(descTimeout);
+      title.unobserve(handleTitleChange);
+      desc.unobserve(handleDescChange);
       provider.destroy();
       doc.destroy();
       providerRef.current = null;
       docRef.current = null;
-      titleTextRef.current = null;
-      descTextRef.current = null;
-      isInitializedRef.current = false;
+      setTitleText(null);
+      setDescText(null);
     };
   }, [user, boardId, taskId, initialData.title, initialData.description]);
-
-  // Get current text value
-  const getFieldValue = useCallback((field: "title" | "description"): string => {
-    if (field === "title") {
-      return titleTextRef.current?.toString() || "";
-    }
-    return descTextRef.current?.toString() || "";
-  }, []);
-
-  // Insert text at position
-  const insertText = useCallback(
-    (field: "title" | "description", index: number, text: string) => {
-      const yText = field === "title" ? titleTextRef.current : descTextRef.current;
-      if (yText) {
-        yText.insert(index, text);
-      }
-    },
-    []
-  );
-
-  // Delete text at position
-  const deleteText = useCallback(
-    (field: "title" | "description", index: number, length: number) => {
-      const yText = field === "title" ? titleTextRef.current : descTextRef.current;
-      if (yText) {
-        yText.delete(index, length);
-      }
-    },
-    []
-  );
 
   // Update cursor position
   const updateCursor = useCallback(
@@ -180,14 +172,11 @@ export function useCollaborativeTask({
   );
 
   return {
-    getFieldValue,
-    insertText,
-    deleteText,
+    titleText,
+    descText,
     updateCursor,
     clearCursor,
     remoteUsers,
     getRemoteUsersInField,
-    titleText: titleTextRef.current,
-    descText: descTextRef.current,
   };
 }
