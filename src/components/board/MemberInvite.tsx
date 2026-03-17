@@ -37,11 +37,8 @@ function MemberInvite({
     currentUserRole === "owner" || currentUserRole === "admin";
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(inviteLink).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {
-      // Fallback: use execCommand for older browsers
+    const copyToClipboard = () => {
+      // Fallback: use execCommand for older browsers or non-secure contexts
       const textArea = document.createElement("textarea");
       textArea.value = inviteLink;
       textArea.style.position = "fixed";
@@ -56,7 +53,16 @@ function MemberInvite({
         // Silent fail
       }
       document.body.removeChild(textArea);
-    });
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(inviteLink).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(copyToClipboard);
+    } else {
+      copyToClipboard();
+    }
   }, [inviteLink]);
 
   const handleRoleChange = useCallback(
