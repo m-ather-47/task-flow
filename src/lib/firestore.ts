@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import {
   collection,
   doc,
@@ -29,10 +30,10 @@ export async function createBoard(
   owner: BoardMember
 ): Promise<string> {
   const defaultColumns: Column[] = [
-    { id: crypto.randomUUID(), title: "To Do", color: "#6366f1" },
-    { id: crypto.randomUUID(), title: "In Progress", color: "#f59e0b" },
-    { id: crypto.randomUUID(), title: "Review", color: "#8b5cf6" },
-    { id: crypto.randomUUID(), title: "Done", color: "#22c55e" },
+    { id: uuidv4(), title: "To Do", color: "#6366f1" },
+    { id: uuidv4(), title: "In Progress", color: "#f59e0b" },
+    { id: uuidv4(), title: "Review", color: "#8b5cf6" },
+    { id: uuidv4(), title: "Done", color: "#22c55e" },
   ];
 
   const boardRef = await addDoc(collection(db, "boards"), {

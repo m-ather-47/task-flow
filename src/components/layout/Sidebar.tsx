@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { subscribeToBoardsForUser, createBoard } from "@/lib/firestore";
+import { useRouter } from "next/navigation";
+import { subscribeToBoardsForUser, createBoard, deleteBoard } from "@/lib/firestore";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
@@ -15,6 +16,7 @@ import type { Board } from "@/types";
 export function Sidebar() {
   const { user } = useAuthContext();
   const pathname = usePathname();
+  const router = useRouter();
 
   const [boards, setBoards] = useState<Board[]>([]);
   const [loadingBoards, setLoadingBoards] = useState(true);
@@ -25,6 +27,11 @@ export function Sidebar() {
   const [newBoardName, setNewBoardName] = useState("");
   const [newBoardDescription, setNewBoardDescription] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // Delete board modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -63,8 +70,29 @@ export function Sidebar() {
       setNewBoardName("");
       setNewBoardDescription("");
       setModalOpen(false);
+    } catch (error) {
+      console.error("Failed to create board:", error);
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleDeleteBoard() {
+    if (!boardToDelete) return;
+
+    setDeleting(true);
+    try {
+      await deleteBoard(boardToDelete.id);
+      setDeleteModalOpen(false);
+      setBoardToDelete(null);
+      // Navigate away if we're on the deleted board
+      if (pathname === `/board/${boardToDelete.id}`) {
+        router.push("/dashboard");
+      }
+    } catch (error) {
+      console.error("Failed to delete board:", error);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -136,29 +164,32 @@ export function Sidebar() {
 
               return (
                 <li key={board.id}>
-                  <Link
-                    href={boardPath}
+                  <div
                     className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       isActive
                         ? "bg-indigo-50 text-indigo-700"
                         : "text-gray-700 hover:bg-gray-100"
                     }`}
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className={`h-4 w-4 shrink-0 ${isActive ? "text-indigo-500" : "text-gray-400"}`}
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      aria-hidden="true"
+                    <Link
+                      href={boardPath}
+                      className="flex flex-1 items-center gap-2"
                     >
-                      <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" />
-                    </svg>
-                    <span className="truncate">{board.name}</span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className={`h-4 w-4 shrink-0 ${isActive ? "text-indigo-500" : "text-gray-400"}`}
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" />
+                      </svg>
+                      <span className="truncate">{board.name}</span>
+                    </Link>
 
                     {/* Analytics link */}
                     <Link
                       href={analyticsPath}
-                      onClick={(e) => e.stopPropagation()}
                       className="ml-auto hidden rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 group-hover:block"
                       aria-label={`Analytics for ${board.name}`}
                     >
@@ -172,7 +203,34 @@ export function Sidebar() {
                         <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
                       </svg>
                     </Link>
-                  </Link>
+
+                    {/* Delete button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setBoardToDelete(board);
+                        setDeleteModalOpen(true);
+                      }}
+                      className="hidden rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-600 group-hover:block"
+                      aria-label={`Delete ${board.name}`}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-3.5 w-3.5"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -341,6 +399,47 @@ export function Sidebar() {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* Delete Board Modal */}
+      <Modal
+        open={deleteModalOpen}
+        onClose={() => {
+          if (!deleting) {
+            setDeleteModalOpen(false);
+            setBoardToDelete(null);
+          }
+        }}
+        title="Delete Board"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDeleteModalOpen(false);
+                setBoardToDelete(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDeleteBoard}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-gray-600">
+          Are you sure you want to delete{" "}
+          <span className="font-semibold">{boardToDelete?.name}</span>? This
+          action cannot be undone and all tasks will be permanently removed.
+        </p>
       </Modal>
     </>
   );

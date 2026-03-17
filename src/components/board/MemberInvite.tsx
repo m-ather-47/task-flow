@@ -36,14 +36,27 @@ function MemberInvite({
   const canManageMembers =
     currentUserRole === "owner" || currentUserRole === "admin";
 
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(inviteLink);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(inviteLink).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback: select the text
-    }
+    }).catch(() => {
+      // Fallback: use execCommand for older browsers
+      const textArea = document.createElement("textarea");
+      textArea.value = inviteLink;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // Silent fail
+      }
+      document.body.removeChild(textArea);
+    });
   }, [inviteLink]);
 
   const handleRoleChange = useCallback(
